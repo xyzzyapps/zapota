@@ -1,0 +1,331 @@
+/**
+ * @file query/cache/match.c
+ * @brief Match table one or more times with query.
+ */
+
+#include "../../private_api.h"
+
+#ifdef FLECS_CACHED_QUERIES
+
+/* Free cache entry element. */
+static void flecs_query_cache_match_elem_fini(
+    ecs_query_cache_t *cache,
+    ecs_query_cache_match_t *qm)
+{
+    if (qm->base.columns) {
+        flecs_bfree(&cache->allocators.columns, qm->base.columns);
+    }
+
+    if (!flecs_query_cache_is_trivial(cache)) {
+        if (qm->_trs) {
+            flecs_bfree(&cache->allocators.pointers,
+                ECS_CONST_CAST(void*, qm->_trs));
+        }
+
+        if (qm->_ids != cache->query->ids) {
+            flecs_bfree(&cache->allocators.ids, qm->_ids);
+        }
+
+        if (qm->_sources != cache->sources) {
+            flecs_bfree(&cache->allocators.ids, qm->_sources);
+        }
+
+        if (qm->_monitor) {
+            flecs_bfree(&cache->allocators.monitors, qm->_monitor);
+        }
+    }
+}
+
+/* Free cache entry element and optional wildcard matches. */
+void flecs_query_cache_match_fini(
+    ecs_query_cache_t *cache,
+    ecs_query_cache_match_t *qm)
+{
+    flecs_query_cache_match_elem_fini(cache, qm);
+
+    if (!flecs_query_cache_is_trivial(cache)) {
+        if (qm->wildcard_matches) {
+            ecs_query_cache_match_t *elems = ecs_vec_first(qm->wildcard_matches);
+            int32_t i, count = ecs_vec_count(qm->wildcard_matches);
+            for (i = 0; i < count; i ++) {
+                flecs_query_cache_match_elem_fini(cache, &elems[i]);
+            }
+
+            ecs_allocator_t *a = &cache->query->real_world->allocator;
+            ecs_vec_fini_t(a, qm->wildcard_matches, ecs_query_cache_match_t);
+            flecs_free_t(a, ecs_vec_t, qm->wildcard_matches);
+        }
+    }
+}
+
+/* Initialize cache entry element. */
+static void flecs_query_cache_match_set(
+    ecs_query_cache_t *cache,
+    ecs_query_cache_match_t *qm,
+    ecs_iter_t *it)
+{
+    bool trivial_cache = flecs_query_cache_is_trivial(cache);
+    ecs_query_t *query = cache->query;
+    int8_t i, field_count = query->field_count;
+    ecs_assert(field_count > 0, ECS_INTERNAL_ERROR, NULL);
+
+    qm->base.table = it->table;
+    qm->base.set_fields = it->set_fields;
+
+    if (!qm->base.columns) {
+        qm->base.columns = flecs_balloc(&cache->allocators.columns);
+    }
+
+    ecs_os_memcpy_n(qm->base.columns, it->columns, int16_t, field_count);
+
+    /* Find out whether to store result-specific ids array or fixed array */
+    ecs_id_t *ids = cache->query->ids;
+    for (i = 0; i < field_count; i ++) {
+        if (it->ids[i] != ids[i]) {
+            break;
+        }
+    }
+
+    if (!trivial_cache) {
+        if (i != field_count) {
+            if (qm->_ids == ids || !qm->_ids) {
+                qm->_ids = flecs_balloc(&cache->allocators.ids);
+            }
+            ecs_os_memcpy_n(qm->_ids, it->ids, ecs_id_t, field_count);
+        } else {
+            if (qm->_ids != ids) {
+                flecs_bfree(&cache->allocators.ids, qm->_ids);
+                qm->_ids = ids;
+            }
+        }
+    }
+
+    /* Find out whether to store result-specific sources array or fixed array */
+    for (i = 0; i < field_count; i ++) {
+        if (it->sources[i]) {
+            break;
+        }
+    }
+
+    if (!trivial_cache) {
+        if (i != field_count) {
+            if (qm->_sources == cache->sources || !qm->_sources) {
+                qm->_sources = flecs_balloc(&cache->allocators.ids);
+            }
+            ecs_os_memcpy_n(qm->_sources, it->sources, ecs_entity_t, field_count);
+        } else {
+            if (qm->_sources != cache->sources) {
+                flecs_bfree(&cache->allocators.ids, qm->_sources);
+                qm->_sources = cache->sources;
+            }
+        }
+
+        qm->_up_fields = it->up_fields;
+
+        if (!qm->_trs) {
+            qm->_trs = flecs_balloc(&cache->allocators.pointers);
+        }
+        for (i = 0; i < field_count; i ++) {
+            if (it->trs[i] && !it->sources[i] &&
+                !(it->up_fields & (1llu << i)))
+            {
+                qm->_trs[i] = it->trs[i];
+            } else {
+                qm->_trs[i] = NULL;
+            }
+        }
+    } else {
+        /* If this is a trivial cache, we shouldn't have any fields with
+         * non-$this sources */
+        ecs_assert(i == field_count, ECS_INTERNAL_ERROR, NULL);
+    }
+}
+
+/* Iterate the next match for table. This function accepts an iterator for the 
+ * cache query and will keep on iterating until a result for a different table
+ * is returned. Typically each table only returns one result, but wildcard 
+ * queries can return multiple results for the same table. 
+ * 
+ * For each iterated result the function will initialize the cache entry for the
+ * matched table. */
+bool flecs_query_cache_match_next(
+    ecs_query_cache_t *cache,
+    ecs_iter_t *it)
+{
+    ecs_table_t *table = it->table;
+    ecs_assert(table != NULL, ECS_INTERNAL_ERROR, NULL);
+
+    ecs_query_cache_match_t *first = flecs_query_cache_add_table(cache, table);
+    ecs_query_cache_match_t *qm = first;
+
+    ecs_size_t elem_size = flecs_query_cache_elem_size(cache);
+    ecs_allocator_t *a = &cache->query->real_world->allocator;
+
+    do {
+        flecs_query_cache_match_set(cache, qm, it);
+
+        if (!ecs_query_next(it)) {
+            return false;
+        }
+
+        if (it->table != table) {
+            return true;
+        }
+
+        /* Another match for the same table (for wildcard queries) */
+
+        if (!first->wildcard_matches) {
+            first->wildcard_matches = flecs_alloc_t(a, ecs_vec_t);
+            ecs_vec_init(a, first->wildcard_matches, elem_size, 1);
+        }
+
+        qm = ecs_vec_append(a, first->wildcard_matches, elem_size);
+        ecs_os_zeromem(qm);
+    } while (true);
+}
+
+/* Same as flecs_query_cache_match_next, but for rematching. This function will
+ * overwrite existing cache entries with new match data. */
+static bool flecs_query_cache_rematch_next(
+    ecs_query_cache_t *cache,
+    ecs_iter_t *it)
+{
+    ecs_table_t *table = it->table;
+    ecs_assert(table != NULL, ECS_INTERNAL_ERROR, NULL);
+
+    ecs_query_cache_match_t *first = 
+        flecs_query_cache_ensure_table(cache, table);
+    ecs_query_cache_match_t *qm = first;
+    
+    ecs_size_t elem_size = flecs_query_cache_elem_size(cache);
+    ecs_allocator_t *a = &cache->query->real_world->allocator;
+    ecs_vec_t *wildcard_matches = first->wildcard_matches;
+    int32_t wildcard_elem = 0;
+
+    bool result = true, has_more = true;
+
+    do {
+        flecs_query_cache_match_set(cache, qm, it);
+
+        if (!ecs_query_next(it)) {
+            has_more = false;
+            result = false;
+        }
+
+        if (it->table != table) {
+            has_more = false;
+        }
+
+        /* Are there more results for this table? */
+        if (!has_more) {
+            /* If existing match had more wildcard matches than new match free
+             * the superfluous ones. */
+
+            if (wildcard_matches) {
+                int32_t i, count = ecs_vec_count(wildcard_matches);
+                for (i = wildcard_elem; i < count; i ++) {
+                    ecs_query_cache_match_t *qm_elem = ecs_vec_get(
+                        wildcard_matches, elem_size, i);
+                    flecs_query_cache_match_fini(cache, qm_elem);
+                }
+
+                if (!wildcard_elem) {
+                    ecs_vec_fini(a, wildcard_matches, elem_size);
+                    flecs_free_t(a, ecs_vec_t, wildcard_matches);
+                    qm->wildcard_matches = NULL;
+                } else {
+                    ecs_vec_set_count(a, wildcard_matches, elem_size,
+                        wildcard_elem);
+                }
+            }
+
+            /* Are there more results for other tables? */
+            return result;
+        }
+
+        /* Another match for the same table (for wildcard queries) */
+
+        if (!wildcard_matches) {
+            first->wildcard_matches = wildcard_matches = 
+                flecs_alloc_t(a, ecs_vec_t);
+            ecs_vec_init(a, wildcard_matches, elem_size, 1);
+        }
+
+        if (ecs_vec_count(wildcard_matches) <= wildcard_elem) {
+            qm = ecs_vec_append(a, wildcard_matches, elem_size);
+            ecs_os_zeromem(qm);
+        } else {
+            qm = ecs_vec_get(wildcard_matches, elem_size, wildcard_elem);
+        }
+
+        wildcard_elem ++;
+    } while (true);
+}
+
+static void flecs_query_rematch_table(
+    ecs_world_t *world,
+    ecs_query_impl_t *impl,
+    ecs_table_t *table)
+{
+    ecs_query_cache_t *cache = impl->cache;
+    ecs_assert(cache != NULL, ECS_INTERNAL_ERROR, NULL);
+
+    /* Queries with trivial caches can't trigger rematching */
+    ecs_assert(!flecs_query_cache_is_trivial(cache), ECS_INTERNAL_ERROR, NULL);
+
+    if (table->flags & EcsTableNotQueryable) {
+        return;
+    }
+
+    ecs_iter_t it = flecs_query_iter(world, cache->query);
+    ECS_BIT_SET(it.flags, EcsIterNoData);
+
+    ecs_table_range_t range = { .table = table };
+    ecs_iter_set_var_as_range(&it, 0, &range);
+
+    if (!ecs_query_next(&it)) {
+        flecs_query_cache_remove_table(cache, table);
+        return;
+    }
+
+    if (flecs_query_cache_rematch_next(cache, &it)) {
+        ecs_abort(ECS_INTERNAL_ERROR, NULL);
+    }
+}
+
+void flecs_query_revalidate_table(
+    ecs_world_t *world,
+    ecs_query_impl_t *impl,
+    uint64_t table_id)
+{
+    flecs_poly_assert(world, ecs_world_t);
+
+    ecs_query_cache_t *cache = impl->cache;
+    ecs_assert(cache != NULL, ECS_INTERNAL_ERROR, NULL);
+
+    ecs_table_t *table = flecs_sparse_get_t(
+        &world->store.tables, ecs_table_t, table_id);
+    if (!table) {
+        return;
+    }
+
+    ecs_os_perf_trace_push("flecs.query.revalidate_table");
+
+    ecs_time_t t = {0};
+    if (world->flags & EcsWorldMeasureFrameTime) {
+        ecs_time_measure(&t);
+    }
+
+    world->info.eval_comp_monitors_total ++;
+    cache->match_count ++;
+
+    flecs_query_rematch_table(world, impl, table);
+
+    if (world->flags & EcsWorldMeasureFrameTime) {
+        world->info.rematch_time_total += (ecs_ftime_t)ecs_time_measure(&t);
+    }
+
+    ecs_os_perf_trace_pop("flecs.query.revalidate_table");
+}
+
+#endif

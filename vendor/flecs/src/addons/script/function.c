@@ -1,0 +1,585 @@
+/**
+ * @file addons/script/function.c
+ * @brief Script function API.
+ */
+
+#include "flecs.h"
+
+#ifdef FLECS_SCRIPT
+#include "script.h"
+
+static void ecs_script_params_free(ecs_vec_t *params) {
+    int32_t i, count = ecs_vec_count(params);
+    if (count) {
+        ecs_script_parameter_t *array = ecs_vec_first(params);
+        for (i = 0; i < count; i ++) {
+            /* Safe, component owns string */
+            ecs_os_free(ECS_CONST_CAST(char*, array[i].name));
+        }
+    }
+
+    ecs_vec_fini_t(NULL, params, ecs_script_parameter_t);
+    ecs_os_zeromem(params);
+}
+
+static void ecs_script_params_copy(
+    ecs_vec_t *dst,
+    const ecs_vec_t *src)
+{
+    int32_t i, count = ecs_vec_count(src);
+    if (!count) {
+        ecs_os_zeromem(dst);
+        return;
+    }
+
+    const ecs_script_parameter_t *src_array = ecs_vec_first(src);
+    if (!src_array) {
+        ecs_os_zeromem(dst);
+        return;
+    }
+
+    ecs_vec_init_t(NULL, dst, ecs_script_parameter_t, count);
+    for (i = 0; i < count; i ++) {
+        ecs_script_parameter_t *p = ecs_vec_append_t(
+            NULL, dst, ecs_script_parameter_t);
+        p->type = src_array[i].type;
+        p->name = src_array[i].name ? ecs_os_strdup(src_array[i].name) : NULL;
+    }
+}
+
+static void ecs_script_const_var_fini(
+    EcsScriptConstVar *ptr)
+{
+    if (!ptr->value.ptr) {
+        return;
+    }
+
+    ecs_assert(ptr->type_info != NULL, ECS_INTERNAL_ERROR, NULL);
+    flecs_type_info_dtor(ptr->value.ptr, 1, ptr->type_info);
+
+    ecs_os_free(ptr->value.ptr);
+    ptr->value.ptr = NULL;
+    ptr->value.type = 0;
+    ptr->type_info = NULL;
+}
+
+static ECS_COPY(EcsScriptConstVar, dst, src, {
+    ecs_script_const_var_fini(dst);
+    dst->value.type = src->value.type;
+    dst->type_info = src->type_info;
+
+    if (src->value.ptr) {
+        ecs_assert(src->type_info != NULL, ECS_INTERNAL_ERROR, NULL);
+        dst->value.ptr = ecs_os_malloc(src->type_info->size);
+        flecs_type_info_copy(
+            dst->value.ptr, src->value.ptr, 1, src->type_info);
+    }
+})
+
+static ECS_MOVE(EcsScriptConstVar, dst, src, {
+    ecs_script_const_var_fini(dst);
+    
+    *dst = *src;
+
+    src->value.ptr = NULL;
+    src->value.type = 0;
+    src->type_info = NULL;
+})
+
+static ECS_DTOR(EcsScriptConstVar, ptr, {
+    ecs_script_const_var_fini(ptr);
+})
+
+static ECS_COPY(EcsScriptFunction, dst, src, {
+    ecs_script_params_free(&dst->params);
+    if (dst->binding_ctx && dst->binding_ctx_free) {
+        dst->binding_ctx_free(dst->binding_ctx);
+    }
+    dst->binding_ctx = NULL;
+    dst->binding_ctx_free = NULL;
+    dst->return_type = src->return_type;
+    dst->callback = src->callback;
+    ecs_os_memcpy_n(dst->vector_callbacks, src->vector_callbacks,
+        ecs_vector_function_callback_t, FLECS_SCRIPT_VECTOR_FUNCTION_COUNT);
+    dst->ctx = src->ctx;
+    ecs_script_params_copy(&dst->params, &src->params);
+})
+
+static ECS_MOVE(EcsScriptFunction, dst, src, {
+    ecs_script_params_free(&dst->params);
+    if (dst->binding_ctx && dst->binding_ctx_free) {
+        dst->binding_ctx_free(dst->binding_ctx);
+    }
+    *dst = *src;
+    ecs_os_zeromem(src);
+})
+
+static ECS_DTOR(EcsScriptFunction, ptr, {
+    ecs_script_params_free(&ptr->params);
+    if (ptr->binding_ctx && ptr->binding_ctx_free) {
+        ptr->binding_ctx_free(ptr->binding_ctx);
+        ptr->binding_ctx = NULL;
+        ptr->binding_ctx_free = NULL;
+    }
+})
+
+static ECS_COPY(EcsScriptMethod, dst, src, {
+    ecs_script_params_free(&dst->params);
+    if (dst->binding_ctx && dst->binding_ctx_free) {
+        dst->binding_ctx_free(dst->binding_ctx);
+    }
+    dst->binding_ctx = NULL;
+    dst->binding_ctx_free = NULL;
+    dst->return_type = src->return_type;
+    dst->callback = src->callback;
+    ecs_os_memcpy_n(dst->vector_callbacks, src->vector_callbacks,
+        ecs_vector_function_callback_t, FLECS_SCRIPT_VECTOR_FUNCTION_COUNT);
+    dst->ctx = src->ctx;
+    ecs_script_params_copy(&dst->params, &src->params);
+})
+
+static ECS_MOVE(EcsScriptMethod, dst, src, {
+    ecs_script_params_free(&dst->params);
+    if (dst->binding_ctx && dst->binding_ctx_free) {
+        dst->binding_ctx_free(dst->binding_ctx);
+    }
+    *dst = *src;
+    ecs_os_zeromem(src);
+})
+
+static ECS_DTOR(EcsScriptMethod, ptr, {
+    ecs_script_params_free(&ptr->params);
+    if (ptr->binding_ctx && ptr->binding_ctx_free) {
+        ptr->binding_ctx_free(ptr->binding_ctx);
+        ptr->binding_ctx = NULL;
+        ptr->binding_ctx_free = NULL;
+    }
+})
+
+ecs_entity_t ecs_const_var_init(
+    ecs_world_t *world,
+    ecs_const_var_desc_t *desc)
+{
+    flecs_poly_assert(world, ecs_world_t);
+    ecs_check(desc != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->name != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->type != 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->value != NULL, ECS_INVALID_PARAMETER, NULL);
+    
+    if (ecs_lookup_child(world, desc->parent, desc->name) != 0) {
+        ecs_err("cannot redeclare const variable entity '%s' in parent '%s'", 
+            desc->name, flecs_errstr(ecs_get_path(world, desc->parent)));
+        return 0;
+    }
+
+    const ecs_type_info_t *ti = ecs_get_type_info(world, desc->type);
+    ecs_check(ti != NULL, ECS_INVALID_PARAMETER, 
+        "ecs_const_var_desc_t::type is not a valid type");
+
+    ecs_entity_t result = ecs_entity(world, { 
+        .name = desc->name,
+        .parent = desc->parent
+    });
+
+    if (!result) {
+        goto error;
+    }
+
+    EcsScriptConstVar *v = ecs_ensure(world, result, EcsScriptConstVar);
+    v->value.ptr = ecs_os_malloc(ti->size);
+    v->value.type = desc->type;
+    v->type_info = ti;
+    ecs_ptr_init(world, desc->type, v->value.ptr);
+    ecs_ptr_copy(world, desc->type, v->value.ptr, desc->value);
+    ecs_modified(world, result, EcsScriptConstVar);
+
+    return result;
+error:
+    return 0;
+}
+
+ecs_value_t ecs_const_var_get(
+    const ecs_world_t *world,
+    ecs_entity_t entity)
+{
+    ecs_check(world != NULL, ECS_INVALID_PARAMETER, NULL);
+    const EcsScriptConstVar *v = ecs_get(world, entity, EcsScriptConstVar);
+    if (!v) {
+        goto error;
+    }
+
+    return v->value;
+error:
+    return (ecs_value_t){0};
+}
+
+void* ecs_const_var_get_w_type(
+    const ecs_world_t *world,
+    const char *name,
+    ecs_entity_t type,
+    ecs_size_t size,
+    void *out)
+{
+    ecs_check(world != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(name != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(type != 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(out != NULL, ECS_INVALID_PARAMETER, NULL);
+
+    ecs_entity_t var = ecs_lookup(world, name);
+    const EcsScriptConstVar *v = NULL;
+    if (var) {
+        v = ecs_get(world, var, EcsScriptConstVar);
+    }
+
+    if (!v) {
+        ecs_err("const variable '%s' not found", name);
+        goto error;
+    }
+
+    const ecs_type_info_t *ti = ecs_get_type_info(world, type);
+    if (!ti) {
+        ecs_err("requested type for const variable '%s' is not a valid type",
+            name);
+        goto error;
+    }
+
+    if (ti->size != size) {
+        ecs_err("size of requested type for const variable '%s' does not "
+            "match size of provided type", name);
+        goto error;
+    }
+
+    ecs_meta_cursor_t cur = ecs_meta_cursor(world, type, out);
+    if (ecs_meta_set_value(&cur, &v->value)) {
+        ecs_err("value of const variable '%s' cannot be converted to "
+            "requested type", name);
+        goto error;
+    }
+
+    return out;
+error:
+    return out;
+}
+
+void ecs_const_var_modified(
+    ecs_world_t *world,
+    ecs_entity_t entity)
+{
+    ecs_modified(world, entity, EcsScriptConstVar);
+}
+
+#ifdef FLECS_DEBUG
+static bool flecs_script_function_has_vector_args(
+    const ecs_function_desc_t *desc)
+{
+    int32_t i;
+    for (i = 0; i < FLECS_SCRIPT_FUNCTION_ARGS_MAX; i ++) {
+        if (!desc->params[i].name) {
+            break;
+        }
+
+        if (desc->params[i].type == EcsScriptVectorType) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static int flecs_script_function_validate_desc(
+    const ecs_function_desc_t *desc)
+{
+    ecs_check(desc != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->name != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->return_type != 0, ECS_INVALID_PARAMETER, NULL);
+
+    if (!flecs_script_function_has_vector_args(desc)) {
+        ecs_check(desc->callback != NULL, ECS_INVALID_PARAMETER, "%s", desc->name);
+        ecs_check(desc->return_type != EcsScriptVectorType, ECS_INVALID_PARAMETER,
+            "function '%s' cannot have flecs.script.vector return type unless "
+            "at least one argument is of type flecs.script.vector",
+                desc->name);
+    } else {
+        int32_t i;
+        for (i = 0; i < EcsPrimitiveKindLast; i ++) {
+            if (desc->vector_callbacks[i]) {
+                break;
+            }
+        }
+
+        if (i == EcsPrimitiveKindLast) {
+            ecs_throw(ECS_INVALID_PARAMETER, "function '%s' has vector "
+                "arguments, must implement at least one element of "
+                ".vector_callbacks", desc->name);
+        }
+    }
+
+    return 0;
+error:
+    return -1;
+}
+#endif
+
+static void flecs_script_function_parse_args(
+    const ecs_function_desc_t *desc,
+    ecs_vec_t *params)
+{
+    int32_t i;
+    for (i = 0; i < FLECS_SCRIPT_FUNCTION_ARGS_MAX; i ++) {
+        if (!desc->params[i].name) {
+            break;
+        }
+
+        if (!i) {
+            ecs_vec_init_t(NULL, params, ecs_script_parameter_t, 0);
+        }
+
+        ecs_script_parameter_t *p = ecs_vec_append_t(
+            NULL, params, ecs_script_parameter_t);
+        p->type = desc->params[i].type;
+        p->name = ecs_os_strdup(desc->params[i].name);
+    }
+}
+
+ecs_entity_t ecs_function_init(
+    ecs_world_t *world,
+    const ecs_function_desc_t *desc)
+{
+    flecs_poly_assert(world, ecs_world_t);
+    ecs_dbg_assert(!flecs_script_function_validate_desc(desc), 
+        ECS_INVALID_PARAMETER, NULL);
+
+    ecs_entity_t result = ecs_entity(world, { 
+        .name = desc->name,
+        .parent = desc->parent
+    });
+
+    if (!result) {
+        goto error;
+    }
+
+    EcsScriptFunction *f = ecs_ensure(world, result, EcsScriptFunction);
+    f->return_type = desc->return_type;
+    f->callback = desc->callback;
+    ecs_os_memcpy_n(f->vector_callbacks, desc->vector_callbacks, 
+        ecs_vector_function_callback_t, FLECS_SCRIPT_VECTOR_FUNCTION_COUNT);
+    f->ctx = desc->ctx;
+
+    flecs_script_function_parse_args(desc, &f->params);
+
+    ecs_modified(world, result, EcsScriptFunction);
+
+    return result;
+error:
+    return 0;
+}
+
+ecs_entity_t ecs_method_init(
+    ecs_world_t *world,
+    const ecs_function_desc_t *desc)
+{
+    flecs_poly_assert(world, ecs_world_t);
+    ecs_dbg_assert(!flecs_script_function_validate_desc(desc), 
+        ECS_INVALID_PARAMETER, NULL);
+    ecs_check(desc->parent != 0, ECS_INVALID_PARAMETER, NULL);
+
+    ecs_entity_t result = ecs_entity(world, { 
+        .name = desc->name,
+        .parent = desc->parent
+    });
+
+    if (!result) {
+        goto error;
+    }
+
+    EcsScriptMethod *f = ecs_ensure(world, result, EcsScriptMethod);
+    f->return_type = desc->return_type;
+    f->callback = desc->callback;
+    ecs_os_memcpy_n(f->vector_callbacks, desc->vector_callbacks, 
+        ecs_vector_function_callback_t, FLECS_SCRIPT_VECTOR_FUNCTION_COUNT);
+    f->ctx = desc->ctx;
+    
+    flecs_script_function_parse_args(desc, &f->params);
+
+    ecs_modified(world, result, EcsScriptMethod);
+
+    return result;
+error:
+    return 0;
+}
+
+static
+int flecs_script_function_call(
+    ecs_world_t *world,
+    ecs_entity_t function,
+    const struct ecs_script_function_t *f,
+    const ecs_value_t *instance,
+    int32_t argc,
+    const ecs_value_t *argv,
+    ecs_value_t *result)
+{
+    ecs_check(f != NULL, ECS_INVALID_PARAMETER,
+        "entity is not a script function or method");
+    ecs_check(f->callback != NULL, ECS_UNSUPPORTED,
+        "vector functions cannot be called directly");
+    ecs_check(argc >= 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(argc == ecs_vec_count(&f->params), ECS_INVALID_PARAMETER,
+        "expected %d arguments, got %d", ecs_vec_count(&f->params), argc);
+    ecs_check(!argc || argv != NULL, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(result != NULL, ECS_INVALID_PARAMETER, NULL);
+
+    const ecs_script_parameter_t *params = ecs_vec_first(&f->params);
+    (void)params;
+    int32_t i;
+    for (i = 0; i < argc; i ++) {
+        ecs_check(argv[i].type == params[i].type, ECS_INVALID_PARAMETER,
+            "type of argument %d does not match parameter type", i);
+        ecs_check(argv[i].ptr != NULL, ECS_INVALID_PARAMETER, NULL);
+    }
+
+    if (instance) {
+        ecs_check(instance->type == ecs_get_parent(world, function),
+            ECS_INVALID_PARAMETER,
+            "instance type does not match method type");
+        ecs_check(instance->ptr != NULL, ECS_INVALID_PARAMETER, NULL);
+    }
+
+    ecs_check(!result->type || result->type == f->return_type,
+        ECS_INVALID_PARAMETER, "result type does not match function return type");
+
+    bool result_allocated = false;
+    if (!result->ptr) {
+        *result = ecs_value_new(world, f->return_type);
+        ecs_check(result->ptr != NULL, ECS_INVALID_PARAMETER,
+            "function return type is not a valid value type");
+        result_allocated = true;
+    } else if (!result->type) {
+        result->type = f->return_type;
+    }
+
+    const ecs_value_t *call_argv = argv;
+    if (instance) {
+        ecs_value_t *method_argv = ecs_os_alloca_n(ecs_value_t, argc + 1);
+        method_argv[0] = *instance;
+        if (argc) {
+            ecs_os_memcpy_n(&method_argv[1], argv, ecs_value_t, argc);
+        }
+        call_argv = method_argv;
+    }
+
+    ecs_function_ctx_t ctx = {
+        .world = world,
+        .function = function,
+        .ctx = f->ctx
+    };
+
+    ecs_script_runtime_t *runtime = flecs_script_runtime_get(world);
+    flecs_script_runtime_error_reset(runtime);
+    f->callback(&ctx, argc, call_argv, result);
+    if (runtime->error) {
+        runtime->error = false;
+        if (result_allocated) {
+            ecs_value_fini(world, result);
+        }
+        goto error;
+    }
+
+    return 0;
+error:
+    return -1;
+}
+
+int ecs_function_call(
+    ecs_world_t *world,
+    ecs_entity_t function,
+    int32_t argc,
+    const ecs_value_t *argv,
+    ecs_value_t *result)
+{
+    ecs_world_t *real_world = world;
+    flecs_stage_from_world(&real_world);
+    ecs_check(function != 0, ECS_INVALID_PARAMETER, NULL);
+
+    const EcsScriptFunction *f = ecs_get(
+        real_world, function, EcsScriptFunction);
+    return flecs_script_function_call(
+        world, function, f, NULL, argc, argv, result);
+error:
+    return -1;
+}
+
+int ecs_method_call(
+    ecs_world_t *world,
+    ecs_entity_t method,
+    const ecs_value_t *instance,
+    int32_t argc,
+    const ecs_value_t *argv,
+    ecs_value_t *result)
+{
+    ecs_world_t *real_world = world;
+    flecs_stage_from_world(&real_world);
+    ecs_check(method != 0, ECS_INVALID_PARAMETER, NULL);
+    ecs_check(instance != NULL, ECS_INVALID_PARAMETER, NULL);
+
+    const EcsScriptMethod *f = ecs_get(
+        real_world, method, EcsScriptMethod);
+    return flecs_script_function_call(
+        world, method, f, instance, argc, argv, result);
+error:
+    return -1;
+}
+
+void flecs_function_import(
+    ecs_world_t *world)
+{
+    ecs_set_name_prefix(world, "EcsScript");
+    ECS_COMPONENT_DEFINE(world, EcsScriptConstVar);
+    ECS_COMPONENT_DEFINE(world, EcsScriptFunction);
+    ECS_COMPONENT_DEFINE(world, EcsScriptMethod);
+
+    ecs_struct(world, {
+        .entity = ecs_id(EcsScriptConstVar),
+        .members = {
+            { .name = "value", .type = ecs_id(ecs_value_t) }
+        }
+    });
+
+    ecs_struct(world, {
+        .entity = ecs_id(EcsScriptFunction),
+        .members = {
+            { .name = "return_type", .type = ecs_id(ecs_entity_t) }
+        }
+    });
+
+    ecs_struct(world, {
+        .entity = ecs_id(EcsScriptMethod),
+        .members = {
+            { .name = "return_type", .type = ecs_id(ecs_entity_t) }
+        }
+    });
+
+    ecs_set_hooks(world, EcsScriptConstVar, {
+        .ctor = flecs_default_ctor,
+        .dtor = ecs_dtor(EcsScriptConstVar),
+        .copy = ecs_copy(EcsScriptConstVar),
+        .move = ecs_move(EcsScriptConstVar),
+    });
+
+    ecs_set_hooks(world, EcsScriptFunction, {
+        .ctor = flecs_default_ctor,
+        .dtor = ecs_dtor(EcsScriptFunction),
+        .copy = ecs_copy(EcsScriptFunction),
+        .move = ecs_move(EcsScriptFunction),
+    });
+
+    ecs_set_hooks(world, EcsScriptMethod, {
+        .ctor = flecs_default_ctor,
+        .dtor = ecs_dtor(EcsScriptMethod),
+        .copy = ecs_copy(EcsScriptMethod),
+        .move = ecs_move(EcsScriptMethod),
+    });
+
+    flecs_script_register_builtin_functions(world);
+}
+
+#endif

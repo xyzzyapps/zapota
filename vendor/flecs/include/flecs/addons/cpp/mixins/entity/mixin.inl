@@ -1,0 +1,36 @@
+/**
+ * @file addons/cpp/mixins/entity/mixin.inl
+ * @brief Entity world mixin.
+ */
+
+/** Create an entity.
+ * 
+ * @memberof flecs::world
+ * @ingroup cpp_entities
+ */
+template <typename... Args>
+flecs::entity entity(Args &&... args) const;
+
+/** Convert an enum constant to an entity.
+ * 
+ * @memberof flecs::world
+ * @ingroup cpp_entities
+ */
+template <typename E, if_t< is_enum<E>::value > = 0>
+flecs::id id(E value) const;
+
+/** Convert an enum constant to an entity.
+ * 
+ * @memberof flecs::world
+ * @ingroup cpp_entities
+ */
+template <typename E, if_t< is_enum<E>::value > = 0>
+flecs::entity entity(E value) const;
+
+/** Create an entity that's associated with a type.
+ * 
+ * @memberof flecs::world
+ * @ingroup cpp_entities
+ */
+template <typename T>
+flecs::entity entity(const char *name = nullptr) const;

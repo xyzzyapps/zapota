@@ -1,0 +1,193 @@
+/**
+ * @file private/addons.h
+ * @brief Include enabled addons.
+ *
+ * This file should only be included by the main flecs.h header.
+ */
+
+#ifndef FLECS_ADDONS_H
+#define FLECS_ADDONS_H
+
+#include "addon_defines.h"
+
+/* Always included; if disabled, functions are replaced with dummy macros. */
+#include "flecs/addons/log.h"
+
+#ifdef FLECS_CACHED_QUERIES
+#ifdef FLECS_NO_CACHED_QUERIES
+#error "FLECS_NO_CACHED_QUERIES failed: CACHED_QUERIES is required by other addons"
+#endif
+#endif
+
+#ifdef FLECS_CONSTRAINT_TRAITS
+#ifdef FLECS_NO_CONSTRAINT_TRAITS
+#error "FLECS_NO_CONSTRAINT_TRAITS failed: CONSTRAINT_TRAITS is required by other addons"
+#endif
+#include "../addons/constraint_traits.h"
+#endif
+
+#ifdef FLECS_ENTITY_RANGES
+#ifdef FLECS_NO_ENTITY_RANGES
+#error "FLECS_NO_ENTITY_RANGES failed: ENTITY_RANGES is required by other addons"
+#endif
+#include "../addons/entity_ranges.h"
+#endif
+
+#ifdef FLECS_FRAME
+#ifdef FLECS_NO_FRAME
+#error "FLECS_NO_FRAME failed: FRAME is required by other addons"
+#endif
+#include "../addons/frame.h"
+#endif
+
+#ifdef FLECS_APP
+#ifdef FLECS_NO_APP
+#error "FLECS_NO_APP failed: APP is required by other addons"
+#endif
+#include "../addons/app.h"
+#endif
+
+#ifdef FLECS_HTTP
+#ifdef FLECS_NO_HTTP
+#error "FLECS_NO_HTTP failed: HTTP is required by other addons"
+#endif
+#include "../addons/http.h"
+#endif
+
+#ifdef FLECS_REST
+#ifdef FLECS_NO_REST
+#error "FLECS_NO_REST failed: REST is required by other addons"
+#endif
+#include "../addons/rest.h"
+#endif
+
+#ifdef FLECS_TIMER
+#ifdef FLECS_NO_TIMER
+#error "FLECS_NO_TIMER failed: TIMER is required by other addons"
+#endif
+#include "../addons/timer.h"
+#endif
+
+#ifdef FLECS_PIPELINE
+#ifdef FLECS_NO_PIPELINE
+#error "FLECS_NO_PIPELINE failed: PIPELINE is required by other addons"
+#endif
+#include "../addons/pipeline.h"
+#endif
+
+#ifdef FLECS_SYSTEM
+#ifdef FLECS_NO_SYSTEM
+#error "FLECS_NO_SYSTEM failed: SYSTEM is required by other addons"
+#endif
+#include "../addons/system.h"
+#endif
+
+#ifdef FLECS_STATS
+#ifdef FLECS_NO_STATS
+#error "FLECS_NO_STATS failed: STATS is required by other addons"
+#endif
+#include "../addons/stats.h"
+#endif
+
+#ifdef FLECS_METRICS
+#ifdef FLECS_NO_METRICS
+#error "FLECS_NO_METRICS failed: METRICS is required by other addons"
+#endif
+#include "../addons/metrics.h"
+#endif
+
+#ifdef FLECS_ALERTS
+#ifdef FLECS_NO_ALERTS
+#error "FLECS_NO_ALERTS failed: ALERTS is required by other addons"
+#endif
+#include "../addons/alerts.h"
+#endif
+
+#ifdef FLECS_JSON
+#ifdef FLECS_NO_JSON
+#error "FLECS_NO_JSON failed: JSON is required by other addons"
+#endif
+#include "../addons/json.h"
+#endif
+
+#ifdef FLECS_UNITS
+#ifdef FLECS_NO_UNITS
+#error "FLECS_NO_UNITS failed: UNITS is required by other addons"
+#endif
+#include "../addons/units.h"
+#endif
+
+#ifdef FLECS_SCRIPT_MATH
+#ifdef FLECS_NO_SCRIPT_MATH
+#error "FLECS_NO_SCRIPT_MATH failed: SCRIPT_MATH is required by other addons"
+#endif
+#include "../addons/script_math.h"
+#endif
+
+#ifdef FLECS_SCRIPT_PLATFORM
+#ifdef FLECS_NO_SCRIPT_PLATFORM
+#error "FLECS_NO_SCRIPT_PLATFORM failed: SCRIPT_PLATFORM is required by other addons"
+#endif
+#include "../addons/script_platform.h"
+#endif
+
+#ifdef FLECS_PARSER
+#ifdef FLECS_NO_PARSER
+#error "FLECS_NO_PARSER failed: PARSER is required by other addons"
+#endif
+#endif
+
+#ifdef FLECS_QUERY_DSL
+#ifdef FLECS_NO_QUERY_DSL
+#error "FLECS_NO_QUERY_DSL failed: QUERY_DSL is required by other addons"
+#endif
+#endif
+
+#ifdef FLECS_SCRIPT
+#ifdef FLECS_NO_SCRIPT
+#error "FLECS_NO_SCRIPT failed: SCRIPT is required by other addons"
+#endif
+#include "../addons/script.h"
+#endif
+
+#ifdef FLECS_DOC
+#ifdef FLECS_NO_DOC
+#error "FLECS_NO_DOC failed: DOC is required by other addons"
+#endif
+#include "../addons/doc.h"
+#endif
+
+#ifdef FLECS_META
+#ifdef FLECS_NO_META
+#error "FLECS_NO_META failed: META is required by other addons"
+#endif
+#include "../addons/meta.h"
+#endif
+
+#ifdef FLECS_OS_API_IMPL
+#ifdef FLECS_NO_OS_API_IMPL
+#error "FLECS_NO_OS_API_IMPL failed: OS_API_IMPL is required by other addons"
+#endif
+#include "../addons/os_api_impl.h"
+#endif
+
+#ifdef FLECS_MODULE
+#ifdef FLECS_NO_MODULE
+#error "FLECS_NO_MODULE failed: MODULE is required by other addons"
+#endif
+#include "../addons/module.h"
+#endif
+
+#ifdef FLECS_CPP
+#ifdef FLECS_NO_CPP
+#error "FLECS_NO_CPP failed: CPP is required by other addons"
+#endif
+#include "../addons/flecs_cpp.h"
+
+#ifdef __cplusplus
+#include "../addons/cpp/flecs.hpp"
+#endif // __cplusplus
+
+#endif // FLECS_CPP
+
+#endif

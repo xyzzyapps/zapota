@@ -1,0 +1,9 @@
+{
+  "name": "libsixel",
+  "version": "2.0.0",
+  "repo": "libsixel/libsixel",
+  "description": "A lightweight, fast C implementation of DEC SIXEL graphics codec",
+  "keywords": ["terminal", "graphics", "image", "sixel"],
+  "license": "MIT",
+  "install": "meson setup build && meson install -C build"
+}

@@ -1,0 +1,39 @@
+# Zig
+.zig-cache/
+zig-cache/
+zig-out/
+
+# Cross-compile output (scripts/build.ps1)
+dist/
+
+# Objects, libraries, debug info
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.so.*
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.dSYM/
+
+# Scratch / local compile leftovers
+scratch_*
+
+# Editors and IDEs
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

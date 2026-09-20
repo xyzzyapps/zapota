@@ -1,0 +1,77 @@
+{
+    "id":"flecs",
+    "type":"package",
+    "value": {
+        "author": "Sander Mertens",
+        "description": "Entity Component System written in C99/C++17",
+        "amalgamate": [{
+            "path": "distr"
+        }, {
+            "path": "distr",
+            "prefix": "flecs_no_addons",
+            "disable-flags": [ 
+                "FLECS_ALERTS",
+                "FLECS_APP",
+                "FLECS_CACHED_QUERIES",
+                "FLECS_CPP",
+                "FLECS_CONSTRAINT_TRAITS",
+                "FLECS_DOC",
+                "FLECS_EXCLUSIVE_ACCESS",
+                "FLECS_ENTITY_RANGES",
+                "FLECS_FRAME",
+                "FLECS_JOURNAL",
+                "FLECS_JSON",
+                "FLECS_HTTP",
+                "FLECS_LOG",
+                "FLECS_META",
+                "FLECS_METRICS",
+                "FLECS_MODULE",
+                "FLECS_MULTI_WORLD",
+                "FLECS_PERF_TRACE",
+                "FLECS_PIPELINE",
+                "FLECS_PREFAB",
+                "FLECS_QUERY_PLANS",
+                "FLECS_REST",
+                "FLECS_PARSER",
+                "FLECS_QUERY_DSL",
+                "FLECS_SCRIPT",
+                "FLECS_SCRIPT_MATH",
+                "FLECS_SCRIPT_PLATFORM",
+                "FLECS_SYSTEM",
+                "FLECS_STATS",
+                "FLECS_TIMER",
+                "FLECS_UNITS",
+                "FLECS_SANITIZE"
+            ]
+        }]
+    },
+    "dependee": {
+        "lang.c": {
+            "${cfg sanitize}": {
+                "defines": ["FLECS_SANITIZE"]
+            }
+        },
+        "lang.cpp": {
+            "${cfg sanitize}": {
+                "defines": ["FLECS_SANITIZE"]
+            }
+        }
+    },
+    "lang.c": {
+        "${os linux}": {
+            "lib": ["rt", "pthread", "m", "dl"],
+            "${cfg debug}": {
+                "export-symbols": true
+            },
+            "${cfg sanitize}": {
+                "export-symbols": true
+            }
+        },
+        "${os windows}": {
+            "lib": ["ws2_32", "dbgHelp"]
+        },
+        "${cfg sanitize}": {
+            "defines": ["FLECS_SANITIZE"]
+        }
+    }
+}

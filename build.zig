@@ -54,6 +54,35 @@ fn shipHost(b: *std.Build, exe: *std.Build.Step.Compile, gc: bool, is_windows: b
     b.installArtifact(exe);
 }
 
+fn installClapPlugin(
+    b: *std.Build,
+    lib: *std.Build.Step.Compile,
+    tag: []const u8,
+    is_macos: bool,
+    clap_step: *std.Build.Step,
+    all_step: ?*std.Build.Step,
+) void {
+    const dest_sub: []const u8 = if (is_macos)
+        b.fmt("clap/{s}/ZapotaFilter.clap/Contents/MacOS/ZapotaFilter", .{tag})
+    else
+        b.fmt("clap/{s}/ZapotaFilter.clap", .{tag});
+    const inst = b.addInstallArtifact(lib, .{
+        .dest_dir = .{ .override = .lib },
+        .dest_sub_path = dest_sub,
+        .dylib_symlinks = false,
+    });
+    clap_step.dependOn(&inst.step);
+    if (all_step) |s| s.dependOn(&inst.step);
+    if (is_macos) {
+        const plist = b.addInstallFile(
+            b.path("src/clap/Info.plist"),
+            b.fmt("lib/clap/{s}/ZapotaFilter.clap/Contents/Info.plist", .{tag}),
+        );
+        clap_step.dependOn(&plist.step);
+        if (all_step) |s| s.dependOn(&plist.step);
+    }
+}
+
 const CrossKind = enum { windows, posix, wasm, android };
 
 const CrossTarget = struct {
@@ -137,6 +166,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const enable_gc = b.option(bool, "gc", "Link Boehm GC into every demo") orelse true;
+    const clap_step = b.step("clap", "Build ZapotaFilter.clap shared libraries (Win/Linux/macOS)");
 
     const is_windows_target = target.result.os.tag == .windows;
 
@@ -975,12 +1005,16 @@ pub fn build(b: *std.Build) void {
     // Helper: CLAP plugin (header-only CLAP + NanoVG)
     // -------------------------------------------------------------
     const configureCLAP = struct {
-        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build) void {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, as_plugin: bool) void {
             exe.root_module.addIncludePath(builder.path("vendor/clap/include"));
             exe.root_module.addIncludePath(builder.path("vendor/nanovg/src"));
+            const flags: []const []const u8 = if (as_plugin)
+                &.{ "-Wall", "-Wextra", "-DZAPOTA_CLAP_LIB", "-fvisibility=hidden" }
+            else
+                &.{ "-Wall", "-Wextra" };
             exe.root_module.addCSourceFile(.{
                 .file = builder.path("src/demo_clap.c"),
-                .flags = &.{ "-Wall", "-Wextra" },
+                .flags = flags,
             });
             exe.root_module.addCSourceFile(.{
                 .file = builder.path("vendor/nanovg/src/nanovg.c"),
@@ -1489,10 +1523,24 @@ pub fn build(b: *std.Build) void {
         .name = "demo_clap",
         .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
     });
-    configureCLAP(clap_exe, b);
+    configureCLAP(clap_exe, b, false);
     shipHost(b, clap_exe, enable_gc, is_windows_target);
     const run_clap = b.addRunArtifact(clap_exe);
-    b.step("run-clap", "Run CLAP audio plugin + NanoVG UI demo").dependOn(&run_clap.step);
+    b.step("run-clap", "Run CLAP audio plugin validator (exe)").dependOn(&run_clap.step);
+
+    const clap_lib = b.addLibrary(.{
+        .name = "ZapotaFilter",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+        }),
+    });
+    configureCLAP(clap_lib, b, true);
+    const host_clap_tag = b.fmt("{s}-{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag) });
+    installClapPlugin(b, clap_lib, host_clap_tag, target.result.os.tag == .macos, clap_step, null);
 
     // 1.22 Sokol
     const sokol_exe = b.addExecutable(.{
@@ -1822,8 +1870,30 @@ pub fn build(b: *std.Build) void {
             .name = b.fmt("demo_clap-{s}", .{t.tag}),
             .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
         });
-        configureCLAP(c_clap, b);
+        configureCLAP(c_clap, b, false);
         shipCross(b, all_step, extra_step, c_clap, enable_gc, t, android_ndk);
+
+        if (t.kind == .windows or t.kind == .posix) {
+            const clap_shared = b.addLibrary(.{
+                .name = b.fmt("ZapotaFilter-{s}", .{t.tag}),
+                .linkage = .dynamic,
+                .root_module = b.createModule(.{
+                    .target = cross_target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                    .pic = true,
+                }),
+            });
+            configureCLAP(clap_shared, b, true);
+            installClapPlugin(
+                b,
+                clap_shared,
+                t.tag,
+                std.mem.indexOf(u8, t.triple, "macos") != null,
+                clap_step,
+                all_step,
+            );
+        }
 
         if (t.kind != .wasm) {
             const c_sokol = b.addExecutable(.{

@@ -103,7 +103,15 @@ zig cc -target aarch64-ios --sysroot $(xcrun --sdk iphoneos --show-sdk-path) ...
 Yes. Combine **Raylib** (hardware-accelerated OpenGL/Metal/DirectX windowing), **Nuklear** (immediate-mode UI), **PlutoVG** / **NanoVG** (vector graphics), and **SQLite** (persistence) into native apps targeting Windows, Linux, macOS, and 64-bit Raspberry Pi — compiled from one machine via `zig build all`.
 
 ### Cross-Platform Audio Plugins
-Yes. The suite includes **CLAP** (`vendor/clap`), the open C-native plugin standard supported by Bitwig, Reaper, FL Studio, and others. Combine with **Opus** / **LAME** for audio codecs and **NanoVG** / **Nuklear** for plugin GUIs. Zig can emit `.clap` / `.dll` / `.so` / `.dylib` shared libraries via `b.addSharedLibrary` with zero runtime dependencies.
+Yes, as **shared libraries**. `zig build clap` (also part of `zig build all`) emits `ZapotaFilter.clap` for Windows, Linux, and macOS from one host:
+
+| OS | File | Notes |
+| :--- | :--- | :--- |
+| Windows | `zig-out/lib/clap/x86_64-windows/ZapotaFilter.clap` | PE DLL renamed `.clap` |
+| Linux | `zig-out/lib/clap/x86_64-linux/ZapotaFilter.clap` | ELF `.so` (musl). Many DAWs prefer glibc (`-Dtarget=x86_64-linux-gnu`) |
+| macOS | `zig-out/lib/clap/aarch64-macos/ZapotaFilter.clap/` | Bundle: `Contents/MacOS/ZapotaFilter` + `Info.plist` |
+
+The export is `clap_entry` (CLAP factory + 1-pole lowpass). `zig build run-clap` is a **validator exe**, not the plugin. The GUI is still a headless NanoVG null backend (no HWND/X11/Cocoa window), so a DAW can load DSP/params but will not show a real editor yet. Boehm GC is **not** linked into the `.clap`.
 
 ### Cross-Platform Terminal Apps
 Yes. **PDCurses** gives ncurses-compatible window management and keyboard input. **libsixel** renders images directly in the terminal for Sixel-capable terminals (Windows Terminal, iTerm2, WezTerm, Alacritty, Foot). Add **Lua** or **Duktape** for scripting layers and **json-c** / **libyaml** for CLI configuration tools.
@@ -152,7 +160,8 @@ zig build run-ggml        # GGML Tensors
 zig build run-json-c      # JSON-C Parser
 zig build run-sixel       # Libsixel Terminal Graphics
 zig build run-nanovg      # NanoVG Headless Graphics
-zig build run-clap        # CLAP Filter Plugin + NanoVG UI
+zig build run-clap        # CLAP validator exe (not the plugin binary)
+zig build clap            # ZapotaFilter.clap shared libs for Win/Linux/macOS
 zig build run-sokol       # Sokol time/log
 zig build run-hiredis     # hiredis Redis client
 zig build run-protobuf-c  # protobuf-c runtime

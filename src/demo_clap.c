@@ -76,7 +76,7 @@ static const clap_plugin_descriptor_t s_plugin_desc = {
     .id = "org.zapota.filter-nanovg",
     .name = "Zapota NanoVG Filter",
     .vendor = "zapota",
-    .url = "https://github.com/manic/zapota",
+    .url = "https://github.com/xyzzyapps/zapota",
     .manual_url = "",
     .support_url = "",
     .version = "1.0.0",
@@ -519,6 +519,7 @@ CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
     .get_factory = entry_get_factory,
 };
 
+#if !defined(ZAPOTA_CLAP_LIB)
 /* ---- Standalone Host Validator in main() ------------------------------- */
 int main(void) {
     printf("=== CLAP Audio Plugin + NanoVG UI Demo ===\n");
@@ -677,3 +678,4 @@ int main(void) {
     printf("\nAll CLAP filter + NanoVG UI validations PASSED.\n");
     return 0;
 }
+#endif /* !ZAPOTA_CLAP_LIB */

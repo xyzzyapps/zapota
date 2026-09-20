@@ -1,6 +1,26 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+fn addCTree(exe: *std.Build.Step.Compile, b: *std.Build, rel_dir: []const u8, flags: []const []const u8) void {
+    const io = b.graph.io;
+    var dir = std.Io.Dir.cwd().openDir(io, rel_dir, .{ .iterate = true }) catch @panic("open C tree");
+    defer dir.close(io);
+    var walker = dir.walk(b.allocator) catch @panic("walk C tree");
+    defer walker.deinit();
+    while (walker.next(io) catch |err| std.debug.panic("walk: {s}", .{@errorName(err)})) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".c")) continue;
+        const full = b.fmt("{s}/{s}", .{ rel_dir, entry.path });
+        for (full) |*c| {
+            if (c.* == '\\') c.* = '/';
+        }
+        exe.root_module.addCSourceFile(.{
+            .file = b.path(full),
+            .flags = flags,
+        });
+    }
+}
+
 fn attachGc(exe: *std.Build.Step.Compile, b: *std.Build, enabled: bool, is_windows: bool) void {
     if (!enabled) return;
     exe.root_module.addIncludePath(b.path("vendor/bdwgc/include"));
@@ -1056,6 +1076,191 @@ pub fn build(b: *std.Build) void {
         }
     }.apply;
 
+    const configureLinenoise = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build) void {
+            exe.root_module.addIncludePath(builder.path("vendor/linenoise"));
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_linenoise.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("vendor/linenoise/linenoise.c"),
+                .flags = &.{ "-O2" },
+            });
+        }
+    }.apply;
+
+    const configureLibuv = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, is_win: bool, is_linux: bool, is_mac: bool, is_android: bool) void {
+            exe.root_module.addIncludePath(builder.path("vendor/libuv/include"));
+            exe.root_module.addIncludePath(builder.path("vendor/libuv/src"));
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_libuv.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+            const common = [_][]const u8{
+                "vendor/libuv/src/fs-poll.c",
+                "vendor/libuv/src/idna.c",
+                "vendor/libuv/src/inet.c",
+                "vendor/libuv/src/random.c",
+                "vendor/libuv/src/strscpy.c",
+                "vendor/libuv/src/strtok.c",
+                "vendor/libuv/src/thread-common.c",
+                "vendor/libuv/src/threadpool.c",
+                "vendor/libuv/src/timer.c",
+                "vendor/libuv/src/uv-common.c",
+                "vendor/libuv/src/uv-data-getter-setters.c",
+                "vendor/libuv/src/version.c",
+            };
+            const flags_win: []const []const u8 = &.{ "-O2", "-DWIN32_LEAN_AND_MEAN", "-D_WIN32_WINNT=0x0A00" };
+            const flags_unix: []const []const u8 = &.{ "-O2", "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-D_GNU_SOURCE" };
+            const flags = if (is_win) flags_win else flags_unix;
+            for (common) |src| {
+                exe.root_module.addCSourceFile(.{ .file = builder.path(src), .flags = flags });
+            }
+            if (is_win) {
+                const win = [_][]const u8{
+                    "vendor/libuv/src/win/async.c",
+                    "vendor/libuv/src/win/core.c",
+                    "vendor/libuv/src/win/detect-wakeup.c",
+                    "vendor/libuv/src/win/dl.c",
+                    "vendor/libuv/src/win/error.c",
+                    "vendor/libuv/src/win/fs.c",
+                    "vendor/libuv/src/win/fs-event.c",
+                    "vendor/libuv/src/win/getaddrinfo.c",
+                    "vendor/libuv/src/win/getnameinfo.c",
+                    "vendor/libuv/src/win/handle.c",
+                    "vendor/libuv/src/win/loop-watcher.c",
+                    "vendor/libuv/src/win/pipe.c",
+                    "vendor/libuv/src/win/thread.c",
+                    "vendor/libuv/src/win/poll.c",
+                    "vendor/libuv/src/win/process.c",
+                    "vendor/libuv/src/win/process-stdio.c",
+                    "vendor/libuv/src/win/signal.c",
+                    "vendor/libuv/src/win/snprintf.c",
+                    "vendor/libuv/src/win/stream.c",
+                    "vendor/libuv/src/win/tcp.c",
+                    "vendor/libuv/src/win/tty.c",
+                    "vendor/libuv/src/win/udp.c",
+                    "vendor/libuv/src/win/util.c",
+                    "vendor/libuv/src/win/winapi.c",
+                    "vendor/libuv/src/win/winsock.c",
+                };
+                for (win) |src| {
+                    exe.root_module.addCSourceFile(.{ .file = builder.path(src), .flags = flags });
+                }
+                for ([_][]const u8{ "psapi", "user32", "advapi32", "iphlpapi", "userenv", "ws2_32", "dbghelp", "ole32", "shell32", "api-ms-win-core-synch-l1-2-0" }) |lib| {
+                    exe.root_module.linkSystemLibrary(lib, .{});
+                }
+            } else {
+                const unix = [_][]const u8{
+                    "vendor/libuv/src/unix/async.c",
+                    "vendor/libuv/src/unix/core.c",
+                    "vendor/libuv/src/unix/dl.c",
+                    "vendor/libuv/src/unix/fs.c",
+                    "vendor/libuv/src/unix/getaddrinfo.c",
+                    "vendor/libuv/src/unix/getnameinfo.c",
+                    "vendor/libuv/src/unix/loop-watcher.c",
+                    "vendor/libuv/src/unix/loop.c",
+                    "vendor/libuv/src/unix/pipe.c",
+                    "vendor/libuv/src/unix/poll.c",
+                    "vendor/libuv/src/unix/process.c",
+                    "vendor/libuv/src/unix/random-devurandom.c",
+                    "vendor/libuv/src/unix/signal.c",
+                    "vendor/libuv/src/unix/stream.c",
+                    "vendor/libuv/src/unix/tcp.c",
+                    "vendor/libuv/src/unix/thread.c",
+                    "vendor/libuv/src/unix/tty.c",
+                    "vendor/libuv/src/unix/udp.c",
+                };
+                for (unix) |src| {
+                    exe.root_module.addCSourceFile(.{ .file = builder.path(src), .flags = flags });
+                }
+                if (is_linux or is_android) {
+                    const linux = [_][]const u8{
+                        "vendor/libuv/src/unix/linux.c",
+                        "vendor/libuv/src/unix/procfs-exepath.c",
+                        "vendor/libuv/src/unix/random-getrandom.c",
+                        "vendor/libuv/src/unix/random-sysctl-linux.c",
+                        "vendor/libuv/src/unix/proctitle.c",
+                    };
+                    for (linux) |src| {
+                        exe.root_module.addCSourceFile(.{ .file = builder.path(src), .flags = flags });
+                    }
+                    if (is_android) {
+                        exe.root_module.addCSourceFile(.{
+                            .file = builder.path("vendor/libuv/src/unix/random-getentropy.c"),
+                            .flags = flags,
+                        });
+                    }
+                }
+                if (is_mac) {
+                    const mac = [_][]const u8{
+                        "vendor/libuv/src/unix/proctitle.c",
+                        "vendor/libuv/src/unix/bsd-ifaddrs.c",
+                        "vendor/libuv/src/unix/kqueue.c",
+                        "vendor/libuv/src/unix/darwin-proctitle.c",
+                        "vendor/libuv/src/unix/darwin.c",
+                        "vendor/libuv/src/unix/fsevents.c",
+                        "vendor/libuv/src/unix/random-getentropy.c",
+                    };
+                    for (mac) |src| {
+                        exe.root_module.addCSourceFile(.{ .file = builder.path(src), .flags = flags });
+                    }
+                }
+            }
+        }
+    }.apply;
+
+    const configureLibsodium = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, is_win: bool) void {
+            exe.root_module.addIncludePath(builder.path("vendor/libsodium/src/libsodium/include"));
+            exe.root_module.addIncludePath(builder.path("vendor/libsodium/src/libsodium/include/sodium"));
+            exe.root_module.addCMacro("SODIUM_STATIC", "1");
+            exe.root_module.addCMacro("CONFIGURED", "1");
+            exe.root_module.addCMacro("NATIVE_LITTLE_ENDIAN", "1");
+            exe.root_module.addCMacro("HAVE_INTTYPES_H", "1");
+            exe.root_module.addCMacro("HAVE_STDINT_H", "1");
+            exe.root_module.addCMacro("_GNU_SOURCE", "1");
+            if (is_win) {
+                exe.root_module.addCMacro("HAVE_RAISE", "1");
+                exe.root_module.addCMacro("HAVE_SYS_PARAM_H", "1");
+            } else {
+                exe.root_module.addCMacro("HAVE_POSIX_MEMALIGN", "1");
+                exe.root_module.addCMacro("HAVE_PTHREAD", "1");
+                exe.root_module.addCMacro("HAVE_NANOSLEEP", "1");
+                exe.root_module.addCMacro("HAVE_MMAP", "1");
+                exe.root_module.addCMacro("HAVE_SYS_RANDOM_H", "1");
+            }
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_libsodium.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+            addCTree(exe, builder, "vendor/libsodium/src/libsodium", &.{ "-O2", "-fno-strict-aliasing", "-fwrapv" });
+            if (is_win) exe.root_module.linkSystemLibrary("advapi32", .{});
+        }
+    }.apply;
+
+    const configureMiniaudio = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build) void {
+            exe.root_module.addIncludePath(builder.path("vendor/miniaudio"));
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_miniaudio.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+        }
+    }.apply;
+
+    const configureDrWav = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build) void {
+            exe.root_module.addIncludePath(builder.path("vendor/dr_libs"));
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_dr_wav.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+        }
+    }.apply;
+
     // -------------------------------------------------------------
     // 1. Host Demo Executables & Run Steps
     // -------------------------------------------------------------
@@ -1339,6 +1544,58 @@ pub fn build(b: *std.Build) void {
     const run_gc = b.addRunArtifact(gc_exe);
     b.step("run-gc", "Run Boehm garbage collector demo").dependOn(&run_gc.step);
 
+    // 1.27 libuv
+    const libuv_exe = b.addExecutable(.{
+        .name = "demo_libuv",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    configureLibuv(libuv_exe, b, is_windows_target, target.result.os.tag == .linux, target.result.os.tag == .macos, target.result.abi == .android);
+    shipHost(b, libuv_exe, enable_gc, is_windows_target);
+    const run_libuv = b.addRunArtifact(libuv_exe);
+    b.step("run-libuv", "Run libuv event-loop demo").dependOn(&run_libuv.step);
+
+    // 1.28 libsodium
+    const sodium_exe = b.addExecutable(.{
+        .name = "demo_libsodium",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    configureLibsodium(sodium_exe, b, is_windows_target);
+    shipHost(b, sodium_exe, enable_gc, is_windows_target);
+    const run_sodium = b.addRunArtifact(sodium_exe);
+    b.step("run-libsodium", "Run libsodium crypto demo").dependOn(&run_sodium.step);
+
+    // 1.29 linenoise (POSIX terminals; skip Windows)
+    if (!is_windows_target) {
+        const linenoise_exe = b.addExecutable(.{
+            .name = "demo_linenoise",
+            .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+        });
+        configureLinenoise(linenoise_exe, b);
+        shipHost(b, linenoise_exe, enable_gc, false);
+        const run_linenoise = b.addRunArtifact(linenoise_exe);
+        b.step("run-linenoise", "Run linenoise line-editing demo").dependOn(&run_linenoise.step);
+    }
+
+    // 1.30 miniaudio
+    const miniaudio_exe = b.addExecutable(.{
+        .name = "demo_miniaudio",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    configureMiniaudio(miniaudio_exe, b);
+    shipHost(b, miniaudio_exe, enable_gc, is_windows_target);
+    const run_miniaudio = b.addRunArtifact(miniaudio_exe);
+    b.step("run-miniaudio", "Run miniaudio waveform demo").dependOn(&run_miniaudio.step);
+
+    // 1.31 dr_wav
+    const drwav_exe = b.addExecutable(.{
+        .name = "demo_dr_wav",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    configureDrWav(drwav_exe, b);
+    shipHost(b, drwav_exe, enable_gc, is_windows_target);
+    const run_drwav = b.addRunArtifact(drwav_exe);
+    b.step("run-dr-wav", "Run dr_wav encode/decode demo").dependOn(&run_drwav.step);
+
     // -------------------------------------------------------------
     // 2. Cross-Compilation Matrix Step: "all"
     // -------------------------------------------------------------
@@ -1608,6 +1865,52 @@ pub fn build(b: *std.Build) void {
             configureGcDemo(c_gc, b);
             shipCross(b, all_step, extra_step, c_gc, true, t, android_ndk);
         }
+
+        if (t.kind != .wasm) {
+            const c_uv = b.addExecutable(.{
+                .name = b.fmt("demo_libuv-{s}", .{t.tag}),
+                .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+            });
+            configureLibuv(
+                c_uv,
+                b,
+                t.isWindows(),
+                t.kind == .android or std.mem.indexOf(u8, t.triple, "linux") != null,
+                std.mem.indexOf(u8, t.triple, "macos") != null,
+                t.kind == .android,
+            );
+            shipCross(b, all_step, extra_step, c_uv, enable_gc, t, android_ndk);
+        }
+
+        const c_sodium = b.addExecutable(.{
+            .name = b.fmt("demo_libsodium-{s}", .{t.tag}),
+            .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+        });
+        configureLibsodium(c_sodium, b, t.isWindows());
+        shipCross(b, all_step, extra_step, c_sodium, enable_gc, t, android_ndk);
+
+        if (t.kind != .wasm and !t.isWindows()) {
+            const c_ln = b.addExecutable(.{
+                .name = b.fmt("demo_linenoise-{s}", .{t.tag}),
+                .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+            });
+            configureLinenoise(c_ln, b);
+            shipCross(b, all_step, extra_step, c_ln, enable_gc, t, android_ndk);
+        }
+
+        const c_ma = b.addExecutable(.{
+            .name = b.fmt("demo_miniaudio-{s}", .{t.tag}),
+            .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+        });
+        configureMiniaudio(c_ma, b);
+        shipCross(b, all_step, extra_step, c_ma, enable_gc, t, android_ndk);
+
+        const c_dr = b.addExecutable(.{
+            .name = b.fmt("demo_dr_wav-{s}", .{t.tag}),
+            .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+        });
+        configureDrWav(c_dr, b);
+        shipCross(b, all_step, extra_step, c_dr, enable_gc, t, android_ndk);
     }
 
     // -------------------------------------------------------------

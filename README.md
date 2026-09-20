@@ -1,6 +1,6 @@
 # zapota
 
-A demonstration project showcasing 26 pure C library integrations, cross-compiled from one machine with Zig (`build.zig` and `zig cc`). No CMake, Make, or Autotools.
+A demonstration project showcasing 31 pure C library integrations, cross-compiled from one machine with Zig (`build.zig` and `zig cc`). No CMake, Make, or Autotools.
 
 **Targets:** Windows, Linux, macOS, Raspberry Pi, WASM (WASI), Android. iOS needs an Xcode SDK.
 
@@ -20,6 +20,7 @@ A demonstration project showcasing 26 pure C library integrations, cross-compile
 | | hiredis | `vendor/hiredis` | Minimal Redis client (RESP) |
 | | protobuf-c | `vendor/protobuf-c` | Protocol Buffers C runtime |
 | | wslay | `vendor/wslay` | RFC 6455 WebSocket framing (no TLS) |
+| | libuv | `vendor/libuv` | Cross-platform event loop (Node's) |
 | **GUI & Graphics** | Raylib | `vendor/raylib` | Hardware-accelerated 2D/3D graphics + input |
 | | Sokol | `vendor/sokol` | Header-only app/gfx/audio/time (no GPU needed for time/log) |
 | | Nuklear | `vendor/nuklear` | Immediate-mode GUI (zero dependencies) |
@@ -27,14 +28,19 @@ A demonstration project showcasing 26 pure C library integrations, cross-compile
 | | NanoVG | `vendor/nanovg` | 2D vector drawing (OpenGL / headless null) |
 | **Terminal & TUI** | PDCurses | `vendor/pdcurses` | ncurses-compatible TUI, windows, keyboard |
 | | libsixel | `vendor/libsixel` | Image quantization to terminal Sixel streams |
+| | linenoise | `vendor/linenoise` | Line editing and history (POSIX TTY; skipped on Windows) |
+| | notcurses | `vendor/notcurses` | Modern TUI (vendored; demo not wired — needs ncurses terminfo + libunistring) |
 | **Physics & ECS** | Box2D | `vendor/box2d` | 2D rigid body physics simulation |
 | | Flecs | `vendor/flecs` | High-performance entity-component system |
 | **Machine Learning** | GGML | `vendor/ggml` | Tensor computation graph engine |
 | **Audio & Video** | x264 | `vendor/x264` | H.264 / AVC video encoder |
 | | Opus | `vendor/opus` | Low-latency speech & audio codec (CELT + SILK) |
 | | LAME | `vendor/libmp3lame` | MPEG Audio Layer III (MP3) encoder |
+| | miniaudio | `vendor/miniaudio` | Playback/capture + waveform (demo uses no device I/O) |
+| | dr_wav | `vendor/dr_libs` | WAV encode/decode (single-header, from dr_libs) |
 | **Audio Plugins** | CLAP | `vendor/clap` | C-native audio plugin standard (DSP + GUI extensions) |
 | **Memory** | Boehm GC | `vendor/bdwgc` | Conservative garbage collector linked into every demo |
+| **Crypto** | libsodium | `vendor/libsodium` | NaCl-family crypto (hash, sign, box) |
 
 ---
 
@@ -152,6 +158,11 @@ zig build run-hiredis     # hiredis Redis client
 zig build run-protobuf-c  # protobuf-c runtime
 zig build run-wslay       # wslay WebSocket frames
 zig build run-gc          # Boehm garbage collector
+zig build run-libuv       # libuv event loop
+zig build run-libsodium   # libsodium crypto
+zig build run-linenoise   # linenoise (POSIX only)
+zig build run-miniaudio   # miniaudio sine waveform
+zig build run-dr-wav      # dr_wav memory round-trip
 ```
 
 Boehm GC is linked into **every** demo by default (`GC_INIT` runs before `main`). Pass `-Dgc=false` to build without it. Demos that allocate with `GC_MALLOC` (see `src/demo_gc.c`) are collected; other demos keep using libc `malloc` unless they include `gc.h`.
@@ -175,24 +186,3 @@ Requires `git` on `PATH`. Clones or fast-forwards every tree listed in `VENDOR.m
 zig build vendor-update
 ```
 
-### Suggested libraries (not vendored yet)
-
-Useful, C-first, and realistic to cross-compile with `zig cc` for the four product lines this repo targets:
-
-| Use | Library | Why |
-| :--- | :--- | :--- |
-| **Desktop** | [miniaudio](https://github.com/mackron/miniaudio) | Single-header playback/capture; pairs with Raylib/Nuklear apps. |
-| | [tinyfiledialogs](https://github.com/native-toolkit/tinyfiledialogs) | Native open/save/alert dialogs without a toolkit. |
-| | [PhysFS](https://github.com/icculus/physfs) | Zip-backed virtual filesystem for app data. |
-| **Audio plugins** | [miniaudio](https://github.com/mackron/miniaudio) / [dr_libs](https://github.com/mackron/dr_libs) | Host-side WAV/FLAC/MP3 decode next to CLAP. |
-| | [pffft](https://bitbucket.org/jpommier/pffft) or [KISS FFT](https://github.com/mborgerding/kissfft) | Small FFT for EQ, pitch, analyzers. |
-| | [LV2](https://lv2plug.in/) | C plugin API if you also want Ardour/Carla hosts. |
-| **Terminal** | [termbox2](https://github.com/termbox/termbox2) | Smaller TUI than PDCurses; good for TUIs that are not ncurses clones. |
-| | [notcurses](https://github.com/dankamongmen/notcurses) | Modern TUI (images, RGB); heavier, still C. |
-| | [linenoise](https://github.com/antirez/linenoise) | Line editing/history for REPL CLIs (Lua/Duktape shells). |
-| **Server** | [Mongoose](https://github.com/cesanta/mongoose) | Embedded HTTP, WebSocket, MQTT in one C file. |
-| | [libuv](https://github.com/libuv/libuv) | Cross-platform event loop (used by Node); good with picohttpparser. |
-| | [mbedTLS](https://github.com/Mbed-TLS/mbedtls) | TLS without OpenSSL. |
-| | [libsodium](https://github.com/jedisct1/libsodium) | Crypto (NaCl boxes, hashes, sign) without OpenSSL. |
-
-Skip C++-first stacks (Dear ImGui, JUCE, iPlug2, Boost.Asio) unless you are ready to add a C++ compile unit. Prefer MIT/BSD/zlib over GPL when the binary is a shipped app or plugin; x264 (GPL-2.0) and LAME (LGPL-2.0) already constrain those two demos.

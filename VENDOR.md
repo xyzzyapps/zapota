@@ -42,6 +42,12 @@ binaries that link them.
 | protobuf-c | `vendor/protobuf-c` | https://github.com/protobuf-c/protobuf-c.git | BSD-2-Clause | Copyright Dave Benson and the protobuf-c authors |
 | wslay | `vendor/wslay` | https://github.com/tatsuhiro-t/wslay.git | MIT | RFC 6455 WebSocket library. Copyright Tatsuhiro Tsujikawa |
 | Boehm GC | `vendor/bdwgc` | https://github.com/ivmai/bdwgc.git | MIT-style | Conservative GC. Copyright Boehm, Demers, Xerox, SGI, HP, Ivan Maidanski |
+| libuv | `vendor/libuv` | https://github.com/libuv/libuv.git | MIT | Event loop. Copyright Joyent and libuv contributors |
+| libsodium | `vendor/libsodium` | https://github.com/jedisct1/libsodium.git | ISC | Copyright Frank Denis |
+| linenoise | `vendor/linenoise` | https://github.com/antirez/linenoise.git | BSD-2-Clause | POSIX TTY. Copyright Salvatore Sanfilippo, Pieter Noordhuis |
+| notcurses | `vendor/notcurses` | https://github.com/dankamongmen/notcurses.git | Apache-2.0 | Vendored; demo not compiled here (needs ncurses `term.h` + libunistring). Copyright Nick Black |
+| miniaudio | `vendor/miniaudio` | https://github.com/mackron/miniaudio.git | Public domain or MIT-0 | Copyright David Reid |
+| dr_libs | `vendor/dr_libs` | https://github.com/mackron/dr_libs.git | Public domain or MIT-0 | dr_wav / dr_mp3 / dr_flac. Copyright David Reid |
 
 ## License files in tree
 
@@ -72,3 +78,9 @@ binaries that link them.
 | protobuf-c | `vendor/protobuf-c/LICENSE` |
 | wslay | `vendor/wslay/COPYING` |
 | Boehm GC | `vendor/bdwgc/LICENSE` |
+| libuv | `vendor/libuv/LICENSE` |
+| libsodium | `vendor/libsodium/LICENSE` |
+| linenoise | `vendor/linenoise/LICENSE` |
+| notcurses | `vendor/notcurses/COPYRIGHT` |
+| miniaudio | `vendor/miniaudio/LICENSE` (or header license block) |
+| dr_libs | `vendor/dr_libs/dr_wav.h` (license at end of header) |

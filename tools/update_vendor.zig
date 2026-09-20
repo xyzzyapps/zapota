@@ -51,6 +51,9 @@ const packages = [_]Package{
     .{ .name = "libsodium", .path = "vendor/libsodium", .url = "https://github.com/jedisct1/libsodium.git" },
     .{ .name = "wslay", .path = "vendor/wslay", .url = "https://github.com/tatsuhiro-t/wslay.git" },
     .{ .name = "bdwgc", .path = "vendor/bdwgc", .url = "https://github.com/ivmai/bdwgc.git" },
+    .{ .name = "notcurses", .path = "vendor/notcurses", .url = "https://github.com/dankamongmen/notcurses.git" },
+    .{ .name = "miniaudio", .path = "vendor/miniaudio", .url = "https://github.com/mackron/miniaudio.git" },
+    .{ .name = "dr_libs", .path = "vendor/dr_libs", .url = "https://github.com/mackron/dr_libs.git" },
 };
 
 pub fn main(init: std.process.Init) !void {

@@ -301,7 +301,7 @@ pub fn build(b: *std.Build) void {
             for (pdcurses_core) |src| {
                 exe.root_module.addCSourceFile(.{
                     .file = builder.path(src),
-                    .flags = &.{ "-DPDC_WIDE=0", "-DPDC_FORCE_UTF8=0", "-DPDCDEBUG=0" },
+                    .flags = &.{ "-DPDC_WIDE=0", "-DPDC_FORCE_UTF8=0", "-DPDCDEBUG=0", "-Wno-date-time" },
                 });
             }
 
@@ -319,7 +319,7 @@ pub fn build(b: *std.Build) void {
                 for (pdcurses_wincon) |src| {
                     exe.root_module.addCSourceFile(.{
                         .file = builder.path(src),
-                        .flags = &.{ "-DPDC_WIDE=0", "-DPDC_FORCE_UTF8=0", "-DPDCDEBUG=0" },
+                        .flags = &.{ "-DPDC_WIDE=0", "-DPDC_FORCE_UTF8=0", "-DPDCDEBUG=0", "-Wno-date-time" },
                     });
                 }
                 exe.root_module.linkSystemLibrary("user32", .{});
@@ -805,6 +805,7 @@ pub fn build(b: *std.Build) void {
                 "-O2",
                 "-DHAVE_CONFIG_H",
                 "-fno-sanitize=undefined",
+                "-Wno-date-time",
             };
 
             exe.root_module.addCSourceFile(.{

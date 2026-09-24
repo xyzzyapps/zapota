@@ -21,7 +21,8 @@ A demonstration project showcasing 31 pure C library integrations, cross-compile
 | | protobuf-c | `vendor/protobuf-c` | Protocol Buffers C runtime |
 | | wslay | `vendor/wslay` | RFC 6455 WebSocket framing (no TLS) |
 | | libuv | `vendor/libuv` | Cross-platform event loop (Node's) |
-| **GUI & Graphics** | Raylib | `vendor/raylib` | Hardware-accelerated 2D/3D graphics + input |
+| **GUI & Graphics** | Runtime window | `src/demo_window.c` | Opens a window via Win32, `dlopen` of libX11, or AppKit `objc_msgSend`. No X11 headers or Mac SDK at compile time. |
+| | Raylib | `vendor/raylib` | Hardware-accelerated 2D/3D graphics + input |
 | | Sokol | `vendor/sokol` | Header-only app/gfx/audio/time (no GPU needed for time/log) |
 | | Nuklear | `vendor/nuklear` | Immediate-mode GUI (zero dependencies) |
 | | PlutoVG | `vendor/plutovg` | Software 2D vector graphics rasterizer |
@@ -82,6 +83,14 @@ Zig has no `-Drpi` flag. A Pi is ARM Linux: pick the triple, optionally pin the 
 Use `aarch64-linux-gnu` instead of musl if the board is stock Raspberry Pi OS (glibc). Musl static binaries are easier to copy onto the Pi with no extra `.so` files.
 
 GPIO, camera, and VideoCore are not vendored here. These demos are userspace C.
+
+### Windows, Linux, and macOS windows
+
+`zig build run-window` (and `demo_window-*` from `zig build all`) opens a 480×320 window titled zapota and closes it after about two seconds. It does not link X11 or Cocoa at compile time:
+
+- Windows calls `user32` (`CreateWindowExW`).
+- Linux `dlopen`s `libX11.so.6` and calls `XCreateSimpleWindow`. The target machine needs an X server and `libX11` installed.
+- macOS `dlopen`s AppKit and `libobjc` and calls `objc_msgSend` (`NSWindow`). No Mac SDK is required to compile.
 
 ### WASM skips
 
@@ -172,6 +181,7 @@ zig build run-libsodium   # libsodium crypto
 zig build run-linenoise   # linenoise (POSIX only)
 zig build run-miniaudio   # miniaudio sine waveform
 zig build run-dr-wav      # dr_wav memory round-trip
+zig build run-window      # native window for ~2 seconds (Win32 / X11 / AppKit)
 ```
 
 Boehm GC is linked into **every** demo by default (`GC_INIT` runs before `main`). Pass `-Dgc=false` to build without it. Demos that allocate with `GC_MALLOC` (see `src/demo_gc.c`) are collected; other demos keep using libc `malloc` unless they include `gc.h`.

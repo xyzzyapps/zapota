@@ -1005,7 +1005,7 @@ pub fn build(b: *std.Build) void {
     // Helper: CLAP plugin (header-only CLAP + NanoVG)
     // -------------------------------------------------------------
     const configureCLAP = struct {
-        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, as_plugin: bool) void {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, as_plugin: bool, is_win: bool) void {
             exe.root_module.addIncludePath(builder.path("vendor/clap/include"));
             exe.root_module.addIncludePath(builder.path("vendor/nanovg/src"));
             const flags: []const []const u8 = if (as_plugin)
@@ -1016,6 +1016,14 @@ pub fn build(b: *std.Build) void {
                 .file = builder.path("src/demo_clap.c"),
                 .flags = flags,
             });
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/zapota_ui.c"),
+                .flags = flags,
+            });
+            if (is_win) {
+                exe.root_module.linkSystemLibrary("user32", .{});
+                exe.root_module.linkSystemLibrary("gdi32", .{});
+            }
             exe.root_module.addCSourceFile(.{
                 .file = builder.path("vendor/nanovg/src/nanovg.c"),
                 .flags = &.{ "-O2" },
@@ -1295,6 +1303,23 @@ pub fn build(b: *std.Build) void {
         }
     }.apply;
 
+    const configureWindow = struct {
+        fn apply(exe: *std.Build.Step.Compile, builder: *std.Build, is_win: bool) void {
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/demo_window.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+            exe.root_module.addCSourceFile(.{
+                .file = builder.path("src/zapota_ui.c"),
+                .flags = &.{ "-Wall", "-Wextra" },
+            });
+            if (is_win) {
+                exe.root_module.linkSystemLibrary("user32", .{});
+                exe.root_module.linkSystemLibrary("gdi32", .{});
+            }
+        }
+    }.apply;
+
     // -------------------------------------------------------------
     // 1. Host Demo Executables & Run Steps
     // -------------------------------------------------------------
@@ -1523,7 +1548,7 @@ pub fn build(b: *std.Build) void {
         .name = "demo_clap",
         .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
     });
-    configureCLAP(clap_exe, b, false);
+    configureCLAP(clap_exe, b, false, is_windows_target);
     shipHost(b, clap_exe, enable_gc, is_windows_target);
     const run_clap = b.addRunArtifact(clap_exe);
     b.step("run-clap", "Run CLAP audio plugin validator (exe)").dependOn(&run_clap.step);
@@ -1538,7 +1563,7 @@ pub fn build(b: *std.Build) void {
             .pic = true,
         }),
     });
-    configureCLAP(clap_lib, b, true);
+    configureCLAP(clap_lib, b, true, is_windows_target);
     const host_clap_tag = b.fmt("{s}-{s}", .{ @tagName(target.result.cpu.arch), @tagName(target.result.os.tag) });
     installClapPlugin(b, clap_lib, host_clap_tag, target.result.os.tag == .macos, clap_step, null);
 
@@ -1643,6 +1668,16 @@ pub fn build(b: *std.Build) void {
     shipHost(b, drwav_exe, enable_gc, is_windows_target);
     const run_drwav = b.addRunArtifact(drwav_exe);
     b.step("run-dr-wav", "Run dr_wav encode/decode demo").dependOn(&run_drwav.step);
+
+    // 1.32 Runtime window (Win32 / dlopen X11 / dlopen AppKit)
+    const window_exe = b.addExecutable(.{
+        .name = "demo_window",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    configureWindow(window_exe, b, is_windows_target);
+    shipHost(b, window_exe, enable_gc, is_windows_target);
+    const run_window = b.addRunArtifact(window_exe);
+    b.step("run-window", "Open a native window for about two seconds").dependOn(&run_window.step);
 
     // -------------------------------------------------------------
     // 2. Cross-Compilation Matrix Step: "all"
@@ -1870,7 +1905,7 @@ pub fn build(b: *std.Build) void {
             .name = b.fmt("demo_clap-{s}", .{t.tag}),
             .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
         });
-        configureCLAP(c_clap, b, false);
+        configureCLAP(c_clap, b, false, t.isWindows());
         shipCross(b, all_step, extra_step, c_clap, enable_gc, t, android_ndk);
 
         if (t.kind == .windows or t.kind == .posix) {
@@ -1884,7 +1919,7 @@ pub fn build(b: *std.Build) void {
                     .pic = true,
                 }),
             });
-            configureCLAP(clap_shared, b, true);
+            configureCLAP(clap_shared, b, true, t.isWindows());
             installClapPlugin(
                 b,
                 clap_shared,
@@ -1981,6 +2016,15 @@ pub fn build(b: *std.Build) void {
         });
         configureDrWav(c_dr, b);
         shipCross(b, all_step, extra_step, c_dr, enable_gc, t, android_ndk);
+
+        if (t.kind == .windows or t.kind == .posix) {
+            const c_win = b.addExecutable(.{
+                .name = b.fmt("demo_window-{s}", .{t.tag}),
+                .root_module = b.createModule(.{ .target = cross_target, .optimize = optimize, .link_libc = true }),
+            });
+            configureWindow(c_win, b, t.isWindows());
+            shipCross(b, all_step, extra_step, c_win, enable_gc, t, android_ndk);
+        }
     }
 
     // -------------------------------------------------------------

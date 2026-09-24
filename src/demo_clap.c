@@ -13,6 +13,7 @@
 #include "nanovg.h"
 
 #include <clap/clap.h>
+#include "zapota_ui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -373,8 +374,9 @@ static void gui_suggest_title(const clap_plugin_t *plugin, const char *title) {
 static bool gui_show(const clap_plugin_t *plugin) {
     my_filter_plugin_t *plug = (my_filter_plugin_t *)plugin->plugin_data;
     plug->gui_visible = true;
+    /* Real window: lowpass curve + cutoff knob. NanoVG null draw still runs below. */
+    zapota_ui_show(plug->cutoff_hz);
 
-    /* Render the filter UI using NanoVG vector drawing */
     if (plug->vg) {
         NVGcontext *vg = plug->vg;
         nvgBeginFrame(vg, 400.0f, 300.0f, 1.0f);
